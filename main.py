@@ -1,4 +1,9 @@
+import random
+import threading
+
 import pygame
+from astroquery.ipac.nexsci.nasa_exoplanet_archive import NasaExoplanetArchive
+
 
 # 初始化pygame
 pygame.init()
@@ -52,14 +57,39 @@ def display_menu_page():
     screen.blit(enter_button_text, (enter_room_button_rect.x + (enter_room_button_rect.width - enter_button_text.get_width()) // 2, enter_room_button_rect.y + (enter_room_button_rect.height - enter_button_text.get_height()) // 2))
 
 
+# 呈現正在載入系外行星資料畫面的函式
+def display_loading_page():
+    screen.fill(BLACK)
+    loading_text = subtitle_font.render('正在載入系外行星資料...', True, WHITE)
+    screen.blit(loading_text, (width // 2 - loading_text.get_width() // 2, height // 2 - loading_text.get_height() // 2))
+    pygame.display.flip()
+
+
+# 從NASA Exoplanet Archive載入系外行星資料的函式
+def load_exoplanet_data():
+    global exoplanet_data
+    exoplanet_table = NasaExoplanetArchive.query_criteria(
+        table='pscomppars', select='pl_name, sy_dist'
+    )
+    exoplanet_data = exoplanet_table.to_pandas()
+    exoplanet_data = exoplanet_data.dropna(subset=['sy_dist'])
+    exoplanet_data.sort_values(by='pl_name', inplace=True, ignore_index=True)
+    exoplanet_data = exoplanet_data.rename(
+        columns={
+            'pl_name': '行星名稱',
+            'sy_dist': '與地球的距離(秒差距)'
+        }
+    )
+
+
 # 呈現密室畫面的函式
-def display_room_page():
+def display_room_page(planet_name):
     # 放置背景圖
     screen.blit(background_room, (0, 0))
 
     # 放置對話框及密室描述
     pygame.draw.rect(screen, BLACK, (0, height - 100, width, 100))
-    room_description = '你身處在一個系外行星主題的密室，左邊牆上掛著NASA提供的系外行星列表，右邊則有一台距離轉換器。要逃出這個密室，你需要解開其中一個系外行星與你的距離。'
+    room_description = f'你身處在一個系外行星主題的密室，左邊牆上掛著NASA提供的系外行星列表，右邊則有一台距離轉換器。要逃出這個密室，你需要解開{planet_name}這個系外行星與你的距離。'
     room_description_sentences = room_description.split('。')
     room_description_sentences = [sentence + '。' for sentence in room_description_sentences if sentence]
     y_text = height - 80
@@ -77,8 +107,11 @@ def display_room_page():
     screen.blit(distance_converter_button_text, (distance_converter_button_rect.x + 20, distance_converter_button_rect.y + 7))
 
 
-# 設定遊戲初始狀態
+# 初始化遊戲狀態、系外行星資料載入的變數及執行緒
 game_state = 'menu'
+exoplanet_data = None
+loading_thread = None
+selected_exoplanet_name = None
 
 # 遊戲主循環
 running = True
@@ -88,19 +121,28 @@ while running:
             running = False
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if game_state == 'menu' and enter_room_button_rect.collidepoint(event.pos):
-                game_state = 'room'
-            if game_state == 'room':
+                game_state = 'loading'
+                # 建立並啟動新執行緒以載入系外行星資料
+                loading_thread = threading.Thread(target=load_exoplanet_data)
+                loading_thread.start()
+            if game_state == 'room':                    
                 if exoplanet_button_rect.collidepoint(event.pos):
                     print('系外行星列表按鈕被點擊')
+                    print(exoplanet_data)
                 elif distance_converter_button_rect.collidepoint(event.pos):
                     print('距離轉換器按鈕被點擊')
 
     # 依據遊戲狀態更新畫面
     if game_state == 'menu':
         display_menu_page()
-    
+    elif game_state == 'loading':
+        display_loading_page()
+        # 檢查執行緒是否還在運行
+        if not loading_thread.is_alive():
+            selected_exoplanet_name = random.choice(exoplanet_data['行星名稱'])
+            game_state = 'room'
     elif game_state == 'room':
-        display_room_page()
+        display_room_page(selected_exoplanet_name)
 
     pygame.display.flip()
 
